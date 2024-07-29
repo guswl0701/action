@@ -1,9 +1,9 @@
 # Specify the required provider and its version
 terraform {
-  required_p   roviders {
+  required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0" 
+      version = "~> 5.0"
     }
   }
 }
@@ -15,7 +15,7 @@ provider "aws" {
 
 # VPC 생성
 resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
+  cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
   
   tags = {
@@ -25,20 +25,21 @@ resource "aws_vpc" "main" {
 
 # 퍼블릭 서브넷 생성
 resource "aws_subnet" "public" {
-  vpc_id     = aws_vpc.main.id
-  cidr_block = "10.0.1.0/24"
-  availability_zone = "ap-northeast-2a"  # 가용 영역 지정
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "ap-northeast-2a"  # 가용 영역 지정
   map_public_ip_on_launch = true
   
   tags = {
     Name = "public-subnet"
   }
 }
+
 # 두 번째 퍼블릭 서브넷 생성
 resource "aws_subnet" "public2" {
-  vpc_id     = aws_vpc.main.id
-  cidr_block = "10.0.2.0/24"
-  availability_zone = "ap-northeast-2c"  # 다른 가용 영역 사용
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.2.0/24"
+  availability_zone       = "ap-northeast-2c"  # 다른 가용 영역 사용
   map_public_ip_on_launch = true
   
   tags = {
@@ -102,7 +103,6 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
-
 # 보안 그룹 생성
 resource "aws_security_group" "ecs_sg" {
   name        = "ecs-security-group"
@@ -130,7 +130,6 @@ resource "aws_security_group" "ecs_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 }
-
 
 # Application Load Balancer
 resource "aws_lb" "main" {
@@ -175,7 +174,6 @@ resource "aws_lb_target_group" "main" {
   }
 }
 
-
 # IAM 역할 생성
 resource "aws_iam_role" "ecs_execution_role" {
   name = "ecs_execution_role"
@@ -214,7 +212,6 @@ resource "aws_ecr_repository" "django_app" {
 resource "aws_ecr_repository" "nginx" {
   name = "nginx-repo"
 }
-
 
 # ECS 태스크 정의
 resource "aws_ecs_task_definition" "app" {
@@ -309,6 +306,6 @@ resource "aws_cloudwatch_log_group" "django_logs" {
 
 # 출력 추가
 output "alb_dns_name" {
-  value = aws_lb.main.dns_name
+  value       = aws_lb.main.dns_name
   description = "The DNS name of the load balancer"
 }
