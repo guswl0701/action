@@ -71,4 +71,3 @@ jobs:
         cd path/to/terraform/directory
         terraform init
         terraform apply -auto-approve
-
