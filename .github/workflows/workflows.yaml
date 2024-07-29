@@ -16,7 +16,7 @@ jobs:
 
     env:
       AWS_REGION: ap-northeast-2
-      ECR_REPOSITORY: "your-account-id.dkr.ecr.ap-northeast-2.amazonaws.com/django-app-repo"
+      ECR_REPOSITORY: "891377402975.dkr.ecr.ap-northeast-2.amazonaws.com/django-app-repo"
       ECS_CLUSTER: "main-cluster"
       ECS_SERVICE: "app-service"
       ECS_TASK_DEFINITION: "app-task"
