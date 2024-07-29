@@ -1,0 +1,67 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
+      - '.github/workflows/deploy.yaml'
+      - 'main.tf'
+      - '**/*.tf'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: ap-northeast-2
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+
+    - name: Log in to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+      with:
+        region: ${{ env.AWS_REGION }}
+        access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    - name: Build and push Docker image to ECR
+      id: build-and-push
+      env:
+        IMAGE_TAG: ${{ github.sha }}
+        ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+      run: |
+        docker build -t ${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} .
+        docker tag ${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} ${{ env.ECR_REPOSITORY }}:latest
+        docker push ${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+        docker push ${{ env.ECR_REPOSITORY }}:latest
+
+    - name: Update ECS service with new image
+      id: update-ecs-service
+      env:
+        ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+        ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
+        ECS_TASK_DEFINITION: ${{ secrets.ECS_TASK_DEFINITION }}
+      run: |
+        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION }})
+        NEW_TASK_DEF=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_REPOSITORY:latest" '.taskDefinition | .containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .requiresAttributes, .revision, .status, .registeredBy, .registeredAt)')
+        NEW_TASK_DEF_JSON=$(echo $NEW_TASK_DEF | jq -R . | jq -s .)
+        NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json $NEW_TASK_DEF_JSON | jq -r '.taskDefinition.taskDefinitionArn')
+        aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --task-definition $NEW_TASK_DEF_ARN
+
+    - name: Run Terraform
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_REGION: ${{ env.AWS_REGION }}
+      run: |
+        terraform init
+        terraform apply -auto-approve
