@@ -1,18 +1,21 @@
+# Specify the required provider and its version
 terraform {
-  required_providers {
+  required_p   roviders {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 5.0" 
     }
   }
 }
 
+# Configure the AWS Provider
 provider "aws" {
-  region = "ap-northeast-2"
+  region = "ap-northeast-2"  # 서울 리전
 }
 
+# VPC 생성
 resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
+  cidr_block = "10.0.0.0/16"
   enable_dns_hostnames = true
   
   tags = {
@@ -20,21 +23,22 @@ resource "aws_vpc" "main" {
   }
 }
 
+# 퍼블릭 서브넷 생성
 resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "ap-northeast-2a"
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.1.0/24"
+  availability_zone = "ap-northeast-2a"  # 가용 영역 지정
   map_public_ip_on_launch = true
   
   tags = {
     Name = "public-subnet"
   }
 }
-
+# 두 번째 퍼블릭 서브넷 생성
 resource "aws_subnet" "public2" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.2.0/24"
-  availability_zone       = "ap-northeast-2c"
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.2.0/24"
+  availability_zone = "ap-northeast-2c"  # 다른 가용 영역 사용
   map_public_ip_on_launch = true
   
   tags = {
@@ -42,6 +46,7 @@ resource "aws_subnet" "public2" {
   }
 }
 
+# 인터넷 게이트웨이 생성
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
@@ -50,6 +55,7 @@ resource "aws_internet_gateway" "main" {
   }
 }
 
+# 라우팅 테이블 생성
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -63,16 +69,19 @@ resource "aws_route_table" "public" {
   }
 }
 
+# 두 번째 서브넷에 대한 라우팅 테이블 연결
 resource "aws_route_table_association" "public2" {
   subnet_id      = aws_subnet.public2.id
   route_table_id = aws_route_table.public.id
 }
 
+# 라우팅 테이블 연결
 resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id
 }
 
+# ALB 보안 그룹
 resource "aws_security_group" "alb_sg" {
   name        = "alb-security-group"
   description = "Security group for ALB"
@@ -93,6 +102,8 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
+
+# 보안 그룹 생성
 resource "aws_security_group" "ecs_sg" {
   name        = "ecs-security-group"
   description = "Security group for ECS"
@@ -120,6 +131,8 @@ resource "aws_security_group" "ecs_sg" {
   }
 }
 
+
+# Application Load Balancer
 resource "aws_lb" "main" {
   name               = "main-alb"
   internal           = false
@@ -130,6 +143,7 @@ resource "aws_lb" "main" {
   enable_deletion_protection = false
 }
 
+# ALB 리스너
 resource "aws_lb_listener" "front_end" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
@@ -143,6 +157,7 @@ resource "aws_lb_listener" "front_end" {
   depends_on = [aws_lb_target_group.main]
 }
 
+# ALB 타겟 그룹
 resource "aws_lb_target_group" "main" {
   name        = "main-tg"
   port        = 8080
@@ -160,6 +175,8 @@ resource "aws_lb_target_group" "main" {
   }
 }
 
+
+# IAM 역할 생성
 resource "aws_iam_role" "ecs_execution_role" {
   name = "ecs_execution_role"
 
@@ -177,26 +194,29 @@ resource "aws_iam_role" "ecs_execution_role" {
   })
 }
 
+# ECS 실행 역할에 정책 연결
 resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
   role       = aws_iam_role.ecs_execution_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# ECS 클러스터 생성
 resource "aws_ecs_cluster" "main" {
   name = "main-cluster"
 }
 
+# ECR 리포지토리 생성 (이미 존재)
 resource "aws_ecr_repository" "django_app" {
   name = "django-app-repo"
 }
 
+# ECR 리포지토리 생성 (Nginx용)
 resource "aws_ecr_repository" "nginx" {
   name = "nginx-repo"
 }
 
-# ECR 리포지토리 URI를 변수로 정의
-variable "ecr_repository_uri" {}
 
+# ECS 태스크 정의
 resource "aws_ecs_task_definition" "app" {
   family                   = "app-task"
   network_mode             = "awsvpc"
@@ -208,7 +228,7 @@ resource "aws_ecs_task_definition" "app" {
   container_definitions = jsonencode([
     {
       name  = "nginx"
-      image = "${var.ecr_repository_uri}:latest"
+      image = "${aws_ecr_repository.nginx.repository_url}:latest"
       portMappings = [
         {
           containerPort = 80
@@ -226,7 +246,7 @@ resource "aws_ecs_task_definition" "app" {
     },
     {
       name  = "django-app"
-      image = "${var.ecr_repository_uri}:latest"
+      image = "${aws_ecr_repository.django_app.repository_url}:latest"
       portMappings = [
         {
           containerPort = 8080
@@ -251,6 +271,7 @@ resource "aws_ecs_task_definition" "app" {
   ])
 }
 
+# ECS 서비스 생성
 resource "aws_ecs_service" "app" {
   name            = "app-service"
   cluster         = aws_ecs_cluster.main.id
@@ -259,7 +280,7 @@ resource "aws_ecs_service" "app" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = [aws_subnet.public.id, aws_subnet.public2.id]
+    subnets          = [aws_subnet.public.id]
     security_groups  = [aws_security_group.ecs_sg.id]
     assign_public_ip = true
   }
@@ -270,20 +291,24 @@ resource "aws_ecs_service" "app" {
     container_port   = 80
   }
 
+  # 로그 설정 추가
   depends_on = [aws_cloudwatch_log_group.nginx_logs, aws_cloudwatch_log_group.django_logs]
 }
 
+# CloudWatch 로그 그룹 생성 (Nginx용)
 resource "aws_cloudwatch_log_group" "nginx_logs" {
   name              = "/ecs/nginx"
   retention_in_days = 30
 }
 
+# CloudWatch 로그 그룹 생성 (Django용)
 resource "aws_cloudwatch_log_group" "django_logs" {
   name              = "/ecs/django-app"
   retention_in_days = 30
 }
 
+# 출력 추가
 output "alb_dns_name" {
-  value       = aws_lb.main.dns_name
+  value = aws_lb.main.dns_name
   description = "The DNS name of the load balancer"
 }
