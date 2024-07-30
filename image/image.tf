@@ -8,7 +8,7 @@ resource "null_resource" "push_django_image" {
     command = <<EOF
       aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin ${data.aws_ecr_repository.django_app.repository_url}
       docker pull wangamy/new-t-t:latest
-      docker tag wangamy/newt-t-t:latest ${data.aws_ecr_repository.django_app.repository_url}:latest
+      docker tag wangamy/new-t-t:latest ${data.aws_ecr_repository.django_app.repository_url}:latest
       docker push ${data.aws_ecr_repository.django_app.repository_url}:latest
     EOF
   }
