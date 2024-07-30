@@ -3,7 +3,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 5.0" 
     }
   }
 }
@@ -15,7 +15,7 @@ provider "aws" {
 
 # VPC 생성
 resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
+  cidr_block = "10.0.0.0/16"
   enable_dns_hostnames = true
   
   tags = {
@@ -25,21 +25,20 @@ resource "aws_vpc" "main" {
 
 # 퍼블릭 서브넷 생성
 resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "ap-northeast-2a"  # 가용 영역 지정
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.1.0/24"
+  availability_zone = "ap-northeast-2a"  # 가용 영역 지정`
   map_public_ip_on_launch = true
   
   tags = {
     Name = "public-subnet"
   }
 }
-
 # 두 번째 퍼블릭 서브넷 생성
 resource "aws_subnet" "public2" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.2.0/24"
-  availability_zone       = "ap-northeast-2c"  # 다른 가용 영역 사용
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.2.0/24"
+  availability_zone = "ap-northeast-2c"  # 다른 가용 영역 사용
   map_public_ip_on_launch = true
   
   tags = {
@@ -103,6 +102,7 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
+
 # 보안 그룹 생성
 resource "aws_security_group" "ecs_sg" {
   name        = "ecs-security-group"
@@ -131,6 +131,7 @@ resource "aws_security_group" "ecs_sg" {
   }
 }
 
+
 # Application Load Balancer
 resource "aws_lb" "main" {
   name               = "main-alb"
@@ -153,13 +154,13 @@ resource "aws_lb_listener" "front_end" {
     target_group_arn = aws_lb_target_group.main.arn
   }
 
-  depends_on = [aws_lb_target_group.main]
+  depends_on = [aws_lb.main, aws_lb_target_group.main]
 }
 
 # ALB 타겟 그룹
 resource "aws_lb_target_group" "main" {
   name        = "main-tg"
-  port        = 8080
+  port        = 80  # Nginx 컨테이너 포트로 변경
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
   target_type = "ip"
@@ -172,7 +173,9 @@ resource "aws_lb_target_group" "main" {
     interval            = 300
     matcher             = "200"
   }
+  depends_on = [aws_lb.main]
 }
+
 
 # IAM 역할 생성
 resource "aws_iam_role" "ecs_execution_role" {
@@ -192,6 +195,29 @@ resource "aws_iam_role" "ecs_execution_role" {
   })
 }
 
+# ECR 접근을 위한 IAM 정책 생성
+resource "aws_iam_policy" "ecr_access_policy" {
+  name        = "ecr-access-policy"
+  path        = "/"
+  description = "Allow ECS tasks to access ECR"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # ECS 실행 역할에 정책 연결
 resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
   role       = aws_iam_role.ecs_execution_role.name
@@ -203,15 +229,41 @@ resource "aws_ecs_cluster" "main" {
   name = "main-cluster"
 }
 
-# ECR 리포지토리 생성 (이미 존재)
+# ECR 리포지토리 생성 (Django 앱용)
 resource "aws_ecr_repository" "django_app" {
-  name = "django-app-repo"
+  name                 = "django-app-repo"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
 }
 
 # ECR 리포지토리 생성 (Nginx용)
 resource "aws_ecr_repository" "nginx" {
-  name = "nginx-repo"
+  name                 = "nginx-repo"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
 }
+
+# Nginx 이미지 빌드 및 푸시
+resource "null_resource" "build_and_push_nginx_image" {
+  provisioner "local-exec" {
+    command = <<EOF
+      aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin ${aws_ecr_repository.nginx.repository_url}
+      docker build -t nginx-custom -f Dockerfile .
+      docker tag nginx-custom:latest ${aws_ecr_repository.nginx.repository_url}:latest
+      docker push ${aws_ecr_repository.nginx.repository_url}:latest
+    EOF
+  }
+
+  depends_on = [aws_ecr_repository.nginx]
+}
+
+
 
 # ECS 태스크 정의
 resource "aws_ecs_task_definition" "app" {
@@ -226,6 +278,8 @@ resource "aws_ecs_task_definition" "app" {
     {
       name  = "nginx"
       image = "${aws_ecr_repository.nginx.repository_url}:latest"
+      cpu   = 256
+      memory = 512
       portMappings = [
         {
           containerPort = 80
@@ -244,6 +298,8 @@ resource "aws_ecs_task_definition" "app" {
     {
       name  = "django-app"
       image = "${aws_ecr_repository.django_app.repository_url}:latest"
+      cpu   = 768
+      memory = 1536
       portMappings = [
         {
           containerPort = 8080
@@ -266,6 +322,8 @@ resource "aws_ecs_task_definition" "app" {
       }
     }
   ])
+
+  depends_on = [aws_iam_role.ecs_execution_role, aws_ecr_repository.nginx, aws_ecr_repository.django_app]
 }
 
 # ECS 서비스 생성
@@ -273,11 +331,12 @@ resource "aws_ecs_service" "app" {
   name            = "app-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = 1
+  desired_count   = 2
   launch_type     = "FARGATE"
+  force_new_deployment = true # 이미지가 바뀌었을때 강제로 배포(yes or no)
 
   network_configuration {
-    subnets          = [aws_subnet.public.id]
+    subnets          = [aws_subnet.public.id, aws_subnet.public2.id]
     security_groups  = [aws_security_group.ecs_sg.id]
     assign_public_ip = true
   }
@@ -288,8 +347,13 @@ resource "aws_ecs_service" "app" {
     container_port   = 80
   }
 
-  # 로그 설정 추가
-  depends_on = [aws_cloudwatch_log_group.nginx_logs, aws_cloudwatch_log_group.django_logs]
+    depends_on = [
+    aws_lb_listener.front_end,
+    aws_iam_role_policy_attachment.ecs_execution_role_policy,
+    aws_cloudwatch_log_group.nginx_logs,
+    aws_cloudwatch_log_group.django_logs,
+    aws_lb_target_group.main
+  ]
 }
 
 # CloudWatch 로그 그룹 생성 (Nginx용)
@@ -304,8 +368,50 @@ resource "aws_cloudwatch_log_group" "django_logs" {
   retention_in_days = 30
 }
 
+# Auto Scaling 대상 설정
+resource "aws_appautoscaling_target" "ecs_target" {
+  max_capacity       = 4
+  min_capacity       = 1
+  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.app.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+
+# Auto Scaling 정책 설정 (CPU 사용률 기반)
+resource "aws_appautoscaling_policy" "ecs_policy_cpu" {
+  name               = "cpu-auto-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.ecs_target.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs_target.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs_target.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    target_value = 70.0  # CPU 사용률이 70%를 넘으면 스케일 아웃
+  }
+}
+
+# Auto Scaling 정책 설정 (메모리 사용률 기반)
+resource "aws_appautoscaling_policy" "ecs_policy_memory" {
+  name               = "memory-auto-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.ecs_target.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs_target.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs_target.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageMemoryUtilization"
+    }
+    target_value = 70.0  # 메모리 사용률이 70%를 넘으면 스케일 아웃
+  }
+}
+
 # 출력 추가
 output "alb_dns_name" {
-  value       = aws_lb.main.dns_name
+  value = aws_lb.main.dns_name
   description = "The DNS name of the load balancer"
 }
