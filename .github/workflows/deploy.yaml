@@ -37,8 +37,8 @@ jobs:
     - name: Pull, tag and push Django Docker image to ECR
       id: pull-and-push-django
       run: |
-        docker pull wangamy/ttopia-re:latest
-        docker tag wangamy/ttopia-re:latest ${{ env.ECR_REPOSITORY_DJANGO }}:latest
+        docker pull wangamy/newticket:latest
+        docker tag wangamy/newticket:latest ${{ env.ECR_REPOSITORY_DJANGO }}:latest
         docker push ${{ env.ECR_REPOSITORY_DJANGO }}:latest
 
     - name: Run Terraform to update ECS service
