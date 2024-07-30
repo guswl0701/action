@@ -24,9 +24,9 @@ jobs:
       uses: hashicorp/setup-terraform@v2
 
     - name: Terraform Init
-      working-directory: ./image_update
+      working-directory: ./image
       run: terraform init
 
     - name: Terraform Apply
-      working-directory: ./image_update
+      working-directory: ./image
       run: terraform apply -auto-approve
