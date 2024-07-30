@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'image/image.tf' # image.tf 파일 변경 사항 추적 추가
+      - 'image/image.tf' # image.tf 파일의 변경 사항 추적
 
 jobs:
   build-and-deploy:
@@ -37,8 +37,8 @@ jobs:
     - name: Pull, tag and push Django Docker image to ECR
       id: pull-and-push-django
       run: |
-        docker pull wangamy/newticket:latest
-        docker tag wangamy/newticket:latest ${{ env.ECR_REPOSITORY }}:latest
+        docker pull wangamy/newtickettopia:latest
+        docker tag wangamy/newtickettopia:latest ${{ env.ECR_REPOSITORY }}:latest
         docker push ${{ env.ECR_REPOSITORY }}:latest
 
     - name: Run Terraform to update ECS service
@@ -46,6 +46,7 @@ jobs:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       run: |
+        cd image  # image.tf 파일이 있는 디렉토리로 이동
         terraform init
         terraform apply -auto-approve -target=null_resource.push_django_image -target=null_resource.force_ecs_deployment
 
