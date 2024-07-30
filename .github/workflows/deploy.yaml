@@ -1,14 +1,11 @@
-name: Deploy to AWS
+name: Deploy Django Image to AWS
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'dockerfile'
-      - 'nginx.conf'
-      - '.github/workflows/deploy.yml'
-      - 'main.tf'
+      - 'image.tf'
 
 jobs:
   build-and-deploy:
@@ -16,10 +13,9 @@ jobs:
 
     env:
       AWS_REGION: ap-northeast-2
-      ECR_REPOSITORY_NGINX: "891377402975.dkr.ecr.ap-northeast-2.amazonaws.com/nginx-repo"
+      ECR_REPOSITORY_DJANGO: "891377402975.dkr.ecr.ap-northeast-2.amazonaws.com/django-app-repo"
       ECS_CLUSTER: "main-cluster"
       ECS_SERVICE: "app-service"
-      ECS_TASK_DEFINITION: "app-task"
 
     steps:
     - name: Checkout code
@@ -35,19 +31,20 @@ jobs:
     - name: Log in to Amazon ECR
       id: login-ecr
       run: |
-        aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY_NGINX }}
+        aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY_DJANGO }}
 
-    - name: Build and push Nginx Docker image to ECR
-      id: build-and-push-nginx
+    - name: Pull, tag and push Django Docker image to ECR
+      id: pull-and-push-django
       run: |
-        docker build -t ${{ env.ECR_REPOSITORY_NGINX }}:latest -f dockerfile .
-        docker push ${{ env.ECR_REPOSITORY_NGINX }}:latest
+        docker pull wangamy/ttopia-re:latest
+        docker tag wangamy/ttopia-re:latest ${{ env.ECR_REPOSITORY_DJANGO }}:latest
+        docker push ${{ env.ECR_REPOSITORY_DJANGO }}:latest
 
-    - name: Update ECS service with new Nginx image
-      id: update-ecs-service
+    - name: Run Terraform
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       run: |
-        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION }})
-        NEW_TASK_DEF=$(echo $TASK_DEFINITION | jq --arg IMAGE "${{ env.ECR_REPOSITORY_NGINX }}:latest" '.taskDefinition | .containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .requiresAttributes, .revision, .status, .registeredBy, .registeredAt)')
-        NEW_TASK_DEF_JSON=$(echo $NEW_TASK_DEF | jq -c .)
-        NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF_JSON" | jq -r '.taskDefinition.taskDefinitionArn')
-        aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --task-definition $NEW_TASK_DEF_ARN
+        cd path/to/terraform/directory
+        terraform init
+        terraform apply -auto-approve
