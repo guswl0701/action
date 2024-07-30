@@ -16,6 +16,7 @@ jobs:
       ECR_REPOSITORY_DJANGO: "891377402975.dkr.ecr.ap-northeast-2.amazonaws.com/django-app-repo"
       ECS_CLUSTER: "main-cluster"
       ECS_SERVICE: "app-service"
+      ECS_TASK_DEFINITION: "app-task"
 
     steps:
     - name: Checkout code
@@ -47,3 +48,11 @@ jobs:
       run: |
         terraform init
         terraform apply -auto-approve
+
+    - name: Update ECS service with new image
+      run: |
+        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION }} | jq '.taskDefinition')
+        NEW_TASK_DEF=$(echo $TASK_DEFINITION | jq --arg IMAGE "${{ env.ECR_REPOSITORY_DJANGO }}:latest" '.containerDefinitions[0].image = $IMAGE | del(.compatibilities)')
+        NEW_TASK_DEF_JSON=$(echo $NEW_TASK_DEF | jq -c .)
+        NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF_JSON" | jq -r '.taskDefinition.taskDefinitionArn')
+        aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --task-definition $NEW_TASK_DEF_ARN
