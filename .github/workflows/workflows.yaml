@@ -1,59 +1,32 @@
-name: Deploy Django Image to AWS
+name: Update ECR Image
 
 on:
   push:
-    branches:
-      - main
     paths:
-      - 'image/image.tf' # image.tf 파일의 변경 사항 추적
+      - 'image/**'
 
 jobs:
-  build-and-deploy:
+  terraform-apply:
     runs-on: ubuntu-latest
-
-    env:
-      AWS_REGION: ap-northeast-2
-      ECR_REPOSITORY: "891377402975.dkr.ecr.ap-northeast-2.amazonaws.com/django-app-repo"
-      ECS_CLUSTER: "main-cluster"
-      ECS_SERVICE: "app-service"
-      ECS_TASK_DEFINITION: "app-task"
-
+    
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
+        aws-region: ap-northeast-2
 
-    - name: Log in to Amazon ECR
-      id: login-ecr
-      run: |
-        aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY }}
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
 
-    - name: Pull, tag and push Django Docker image to ECR
-      id: pull-and-push-django
-      run: |
-        docker pull wangamy/newtickettopia:latest
-        docker tag wangamy/newtickettopia:latest ${{ env.ECR_REPOSITORY }}:latest
-        docker push ${{ env.ECR_REPOSITORY }}:latest
+    - name: Terraform Init
+      working-directory: ./image_update
+      run: terraform init
 
-    - name: Run Terraform to update ECS service
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      run: |
-        cd image  # image.tf 파일이 있는 디렉토리로 이동
-        terraform init
-        terraform apply -auto-approve -target=null_resource.push_django_image -target=null_resource.force_ecs_deployment
-
-    - name: Update ECS service with new image
-      run: |
-        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION }} | jq '.taskDefinition')
-        NEW_TASK_DEF=$(echo $TASK_DEFINITION | jq --arg IMAGE "${{ env.ECR_REPOSITORY }}:latest" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredBy, .registeredAt)')
-        NEW_TASK_DEF_JSON=$(echo $NEW_TASK_DEF | jq -c .)
-        NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF_JSON" | jq -r '.taskDefinition.taskDefinitionArn')
-        aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --task-definition $NEW_TASK_DEF_ARN
+    - name: Terraform Apply
+      working-directory: ./image_update
+      run: terraform apply -auto-approve
